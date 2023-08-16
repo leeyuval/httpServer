@@ -19,5 +19,10 @@ func main() {
 
 	var gitHubAPI api.GitHubAPI
 
-	gitHubAPI.FetchRepositoriesByFilter(filter, content)
+	url := gitHubAPI.BuildUrl(filter, content)
+
+	response := gitHubAPI.SendRequest(url)
+
+	gitHubAPI.DisplayResponse(response)
+
 }

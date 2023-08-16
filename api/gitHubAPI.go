@@ -17,7 +17,17 @@ const ownertFilterExt = "users/%s/repos"
 // GitHubAPI implements the API interface for GitHub repositories
 type GitHubAPI struct{}
 
-func BuildUrl(filter string, content string) string {
+type githubRepoJson struct {
+	Name  string `json:"name"`
+	Owner struct {
+		Login string `json:"login"`
+	} `json:"owner"`
+	URL          string    `json:"html_url"`
+	CreationTime time.Time `json:"created_at"`
+	Stars        int       `json:"stargazers_count"`
+}
+
+func (api *GitHubAPI) BuildUrl(filter string, content string) string {
 	var urlString = GitHubBaseUrl
 	switch filter {
 	case Organization:
@@ -31,26 +41,10 @@ func BuildUrl(filter string, content string) string {
 	return url
 }
 
-func (api *GitHubAPI) FetchRepositoriesByFilter(filter string, content string) {
+func (api *GitHubAPI) DisplayResponse(response *http.Response) {
+	var githubResponse []githubRepoJson
 
-	url := BuildUrl(filter, content)
-	response, err := http.Get(url)
-	if err != nil {
-		println(err)
-	}
-	defer response.Body.Close()
-
-	var githubResponse []struct {
-		Name  string `json:"name"`
-		Owner struct {
-			Login string `json:"login"`
-		} `json:"owner"`
-		URL          string    `json:"html_url"`
-		CreationTime time.Time `json:"created_at"`
-		Stars        int       `json:"stargazers_count"`
-	}
-
-	err = json.NewDecoder(response.Body).Decode(&githubResponse)
+	err := json.NewDecoder(response.Body).Decode(&githubResponse)
 	if err != nil {
 		println(err)
 	}
@@ -64,4 +58,20 @@ func (api *GitHubAPI) FetchRepositoriesByFilter(filter string, content string) {
 		fmt.Printf("Stars: %d\n", repo.Stars)
 		fmt.Println("------")
 	}
+}
+
+func (api *GitHubAPI) SendRequest(url string) *http.Response {
+	response, err := http.Get(url)
+	if err != nil {
+		println(err)
+	}
+	return response
+}
+
+func (api *GitHubAPI) FetchRepositoriesByFilter(filter string, content string) {
+	url := api.BuildUrl(filter, content)
+
+	response := api.SendRequest(url)
+
+	api.DisplayResponse(response)
 }
