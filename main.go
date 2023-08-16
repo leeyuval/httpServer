@@ -3,7 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"httpServer/api"
+	"httpServer/restAPIs"
 	"os"
 	"strings"
 )
@@ -17,12 +17,8 @@ func main() {
 	content, _ := reader.ReadString('\n')
 	content = strings.TrimSpace(content)
 
-	var gitHubAPI api.GitHubAPI
+	var gitHubAPI restAPIs.GitHubRestAPI
 
-	url := gitHubAPI.BuildUrl(filter, content)
-
-	response := gitHubAPI.SendRequest(url)
-
-	gitHubAPI.DisplayResponse(response)
+	gitHubAPI.FetchRepositoriesByFilter(filter, content)
 
 }
