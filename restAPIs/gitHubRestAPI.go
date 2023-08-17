@@ -6,7 +6,9 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 	"html/template"
 	"httpServer/requestsHandlers"
+	"math"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -87,7 +89,7 @@ func (api *GitHubRestAPI) BuildUrl(filter string, content string) string {
 	return url
 }
 
-func (api *GitHubRestAPI) DisplayResponse(response *http.Response) {
+func (api *GitHubRestAPI) DisplayResponse(response *http.Response, perPage int) {
 	var githubResponse []githubRepoJson
 
 	err := json.NewDecoder(response.Body).Decode(&githubResponse)
@@ -96,14 +98,62 @@ func (api *GitHubRestAPI) DisplayResponse(response *http.Response) {
 		return
 	}
 
+	totalRepos := len(githubResponse)
+	totalPages := int(math.Ceil(float64(totalRepos) / float64(perPage)))
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		pageParam := query.Get("page")
+		currentPage := 1
+		if pageParam != "" {
+			currentPage, _ = strconv.Atoi(pageParam)
+		}
+
+		startIndex := (currentPage - 1) * perPage
+		endIndex := startIndex + perPage
+		if endIndex > len(githubResponse) {
+			endIndex = len(githubResponse)
+		}
+
+		paginatedResponse := githubResponse[startIndex:endIndex]
+
+		// Calculate the range of page numbers to display
+		startPage := int(math.Max(float64(currentPage-2), 1))
+		endPage := int(math.Min(float64(currentPage+2), float64(totalPages)))
+
+		pageNumbers := make([]int, endPage-startPage+1)
+		for i := startPage; i <= endPage; i++ {
+			pageNumbers[i-startPage] = i
+		}
+
 		tmpl, err := template.ParseFiles("templates/repositories.html")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		err = tmpl.Execute(w, githubResponse)
+		queryParams := make(map[string]string)
+		for key, values := range query {
+			if len(values) > 0 {
+				queryParams[key] = values[0]
+			}
+		}
+
+		data := struct {
+			Repositories []githubRepoJson
+			CurrentPage  int
+			PageNumbers  []int
+			BaseUrl      string
+			QueryParams  map[string]string
+		}{
+			Repositories: paginatedResponse,
+			CurrentPage:  currentPage,
+			PageNumbers:  pageNumbers,
+			BaseUrl:      response.Request.URL.Path,
+			QueryParams:  queryParams,
+		}
+
+		err = tmpl.Execute(w, data)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -119,12 +169,15 @@ func (api *GitHubRestAPI) FetchRepositoriesByFilter() {
 	filter, content, err := api.GetUserInput()
 	if err != nil {
 		fmt.Println("Error:", err)
+		return
 	}
 
 	url := api.BuildUrl(filter, content)
 
 	response := api.SendGetRequest(url)
 
-	api.DisplayResponse(response)
+	// Define the desired number of repositories per page
+	perPage := 12
 
+	api.DisplayResponse(response, perPage)
 }
