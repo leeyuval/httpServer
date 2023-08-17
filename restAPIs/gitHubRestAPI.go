@@ -44,29 +44,26 @@ func (api *GitHubRestAPI) BuildUrl(filter string, content string) string {
 	return url
 }
 
-func (api *GitHubRestAPI) DisplayResponse(response *http.Response) {
+func (api *GitHubRestAPI) DisplayResponse(response *http.Response) ([]githubRepoJson, error) {
 	var githubResponse []githubRepoJson
 
 	err := json.NewDecoder(response.Body).Decode(&githubResponse)
 	if err != nil {
-		println(err)
+		return nil, err
 	}
 
-	fmt.Println("Fetched repositories:")
-	for _, repo := range githubResponse {
-		fmt.Printf("Name: %s\n", repo.Name)
-		fmt.Printf("Owner: %s\n", repo.Owner.Login)
-		fmt.Printf("URL: %s\n", repo.URL)
-		fmt.Printf("Creation Time: %s\n", repo.CreationTime.String())
-		fmt.Printf("Stars: %d\n", repo.Stars)
-		fmt.Println("------")
-	}
+	return githubResponse, nil
 }
 
-func (api *GitHubRestAPI) FetchRepositoriesByFilter(filter string, content string) {
+func (api *GitHubRestAPI) FetchRepositoriesByFilter(filter string, content string) ([]githubRepoJson, error) {
 	url := api.BuildUrl(filter, content)
 
 	response := api.SendGetRequest(url)
 
-	api.DisplayResponse(response)
+	repositories, err := api.DisplayResponse(response)
+	if err != nil {
+		return nil, err
+	}
+
+	return repositories, nil
 }
