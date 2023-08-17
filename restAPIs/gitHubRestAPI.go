@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-const Organization = "1"
-const Owner = "2"
+const Organization = "Organization"
+const Owner = "Owner"
 
 const GitHubBaseUrl = "https://api.github.com/"
 const organizationFilterExt = "orgs/%s/repos"

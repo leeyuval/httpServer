@@ -1,25 +1,39 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
+	"github.com/AlecAivazis/survey/v2"
 	"httpServer/restAPIs"
-	"os"
-	"strings"
 )
 
 func main() {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("Please provide a filter (1 - Organization, 2 - Owner):")
-	filter, _ := reader.ReadString('\n')
-	filter = strings.TrimSpace(filter)
-	fmt.Println("Please provide an appropriate content:")
-	content, _ := reader.ReadString('\n')
-	content = strings.TrimSpace(content)
+	var input struct {
+		Filter  string
+		Content string
+	}
+
+	questions := []*survey.Question{
+		{
+			Name: "Filter",
+			Prompt: &survey.Select{
+				Message: "Please select a filter:",
+				Options: []string{"Organization", "Owner"},
+			},
+			Validate: survey.Required,
+		},
+		{
+			Name:     "Content",
+			Prompt:   &survey.Input{Message: "Please provide an appropriate content:"},
+			Validate: survey.Required,
+		},
+	}
+
+	err := survey.Ask(questions, &input)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
 
 	var gitHubAPI restAPIs.GitHubRestAPI
-
-	gitHubAPI.FetchRepositoriesByFilter(filter, content)
-
-	//todo: Paging Support, More Visual Main
+	gitHubAPI.FetchRepositoriesByFilter(input.Filter, input.Content)
 }
