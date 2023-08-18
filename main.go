@@ -6,5 +6,5 @@ import (
 
 func main() {
 	var gitHubAPI restAPIs.GitHubRestAPI
-	gitHubAPI.FetchRepositoriesByFilter()
+	gitHubAPI.FetchRepositoriesByType()
 }

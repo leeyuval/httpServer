@@ -9,7 +9,6 @@ import (
 	"math"
 	"net/http"
 	"strconv"
-	"time"
 )
 
 const Organization = "Organization"
@@ -25,19 +24,22 @@ type GitHubRestAPI struct {
 }
 
 type githubRepoJson struct {
-	Name  string `json:"name"`
-	Owner struct {
-		Login string `json:"login"`
-	} `json:"owner"`
-	URL          string    `json:"html_url"`
-	CreationTime time.Time `json:"created_at"`
-	Stars        int       `json:"stargazers_count"`
+	Items []struct {
+		Name  string `json:"name"`
+		Owner struct {
+			Login string `json:"login"`
+		} `json:"owner"`
+		URL          string `json:"html_url"`
+		CreationTime string `json:"created_at"`
+		Stars        int    `json:"stargazers_count"`
+	} `json:"items"`
 }
 
-func (api *GitHubRestAPI) GetUserInput() (filter string, content string, err error) {
+func (api *GitHubRestAPI) GetUserInput() (filter string, content string, phrase string, err error) {
 	var input struct {
 		Filter  string
 		Content string
+		Phrase  string
 	}
 
 	filterQuestion := []*survey.Question{
@@ -53,7 +55,7 @@ func (api *GitHubRestAPI) GetUserInput() (filter string, content string, err err
 
 	err = survey.Ask(filterQuestion, &input)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	contentPrompts := map[string]string{
@@ -69,28 +71,42 @@ func (api *GitHubRestAPI) GetUserInput() (filter string, content string, err err
 
 	err = survey.Ask([]*survey.Question{contentQuestion}, &input)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
-	return input.Filter, input.Content, nil
+	phraseQuestion := &survey.Question{
+		Name:     "Phrase",
+		Prompt:   &survey.Input{Message: "Please provide a phrase (optional):"},
+		Validate: nil, // Validation is not required for optional input
+	}
+
+	err = survey.Ask([]*survey.Question{phraseQuestion}, &input)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	return input.Filter, input.Content, input.Phrase, nil
 }
 
-func (api *GitHubRestAPI) BuildUrl(filter string, content string) string {
-	var urlString = GitHubBaseUrl
+func (api *GitHubRestAPI) BuildUrl(filter string, content string, phrase string) string {
+	var urlString = GitHubBaseUrl + "search/repositories?q="
+	if phrase != "" {
+		urlString += phrase + "+in:name"
+	}
 	switch filter {
 	case Organization:
-		urlString += organizationFilterExt
+		urlString += "+org:"
 	case Owner:
-		urlString += ownerFilterExt
+		urlString += "+user:"
 	default:
-		urlString += organizationFilterExt
+		urlString += "+org:"
 	}
-	url := fmt.Sprintf(urlString, content)
+	url := urlString + content
 	return url
 }
 
 func (api *GitHubRestAPI) DisplayResponse(response *http.Response, perPage int) {
-	var githubResponse []githubRepoJson
+	var githubResponse githubRepoJson
 
 	err := json.NewDecoder(response.Body).Decode(&githubResponse)
 	if err != nil {
@@ -98,7 +114,7 @@ func (api *GitHubRestAPI) DisplayResponse(response *http.Response, perPage int) 
 		return
 	}
 
-	totalRepos := len(githubResponse)
+	totalRepos := len(githubResponse.Items)
 	totalPages := int(math.Ceil(float64(totalRepos) / float64(perPage)))
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -111,11 +127,11 @@ func (api *GitHubRestAPI) DisplayResponse(response *http.Response, perPage int) 
 
 		startIndex := (currentPage - 1) * perPage
 		endIndex := startIndex + perPage
-		if endIndex > len(githubResponse) {
-			endIndex = len(githubResponse)
+		if endIndex > len(githubResponse.Items) {
+			endIndex = len(githubResponse.Items)
 		}
 
-		paginatedResponse := githubResponse[startIndex:endIndex]
+		paginatedResponse := githubResponse.Items[startIndex:endIndex]
 
 		// Calculate the range of page numbers to display
 		startPage := int(math.Max(float64(currentPage-2), 1))
@@ -140,11 +156,19 @@ func (api *GitHubRestAPI) DisplayResponse(response *http.Response, perPage int) 
 		}
 
 		data := struct {
-			Repositories []githubRepoJson
-			CurrentPage  int
-			PageNumbers  []int
-			BaseUrl      string
-			QueryParams  map[string]string
+			Repositories []struct {
+				Name  string `json:"name"`
+				Owner struct {
+					Login string `json:"login"`
+				} `json:"owner"`
+				URL          string `json:"html_url"`
+				CreationTime string `json:"created_at"`
+				Stars        int    `json:"stargazers_count"`
+			}
+			CurrentPage int
+			PageNumbers []int
+			BaseUrl     string
+			QueryParams map[string]string
 		}{
 			Repositories: paginatedResponse,
 			CurrentPage:  currentPage,
@@ -164,15 +188,14 @@ func (api *GitHubRestAPI) DisplayResponse(response *http.Response, perPage int) 
 	http.ListenAndServe(":8080", nil)
 }
 
-func (api *GitHubRestAPI) FetchRepositoriesByFilter() {
-
-	filter, content, err := api.GetUserInput()
+func (api *GitHubRestAPI) FetchRepositoriesByType() {
+	filter, content, phrase, err := api.GetUserInput()
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
 	}
 
-	url := api.BuildUrl(filter, content)
+	url := api.BuildUrl(filter, content, phrase)
 
 	response := api.SendGetRequest(url)
 
