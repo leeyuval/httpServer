@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 const Organization = "Organization"
@@ -15,6 +16,8 @@ const Owner = "Owner"
 
 const GitHubBaseUrl = "https://api.github.com/"
 const DefaultResultsPerPage = 12
+const FullTimeLayout = "2006-01-02T15:04:05Z"
+const DisplayTimeLayout = "2006-01-02 15:04"
 
 // GitHubRestAPI implements the RestAPI interface for GitHub repositories
 type GitHubRestAPI struct{}
@@ -108,6 +111,11 @@ func (api *GitHubRestAPI) DisplayResponse(response *http.Response, perPage int) 
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
+	}
+
+	for i, repo := range githubResponse.Items {
+		t, _ := time.Parse(FullTimeLayout, repo.CreationTime)
+		githubResponse.Items[i].CreationTime = t.Format(DisplayTimeLayout)
 	}
 
 	totalRepos := len(githubResponse.Items)
