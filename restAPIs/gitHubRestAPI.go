@@ -5,19 +5,18 @@ import (
 	"fmt"
 	"github.com/AlecAivazis/survey/v2"
 	"html/template"
+	"httpServer/utils"
 	"math"
 	"net/http"
-	"strconv"
 	"time"
 )
 
-const Organization = "Organization"
-const Owner = "Owner"
-
-const GitHubBaseUrl = "https://api.github.com/"
-const DefaultResultsPerPage = 12
-const FullTimeLayout = "2006-01-02T15:04:05Z"
-const DisplayTimeLayout = "2006-01-02 15:04"
+const (
+	GitHubBaseUrl         = "https://api.github.com/"
+	DefaultResultsPerPage = 12
+	FullTimeLayout        = "2006-01-02T15:04:05Z"
+	DisplayTimeLayout     = "2006-01-02 15:04"
+)
 
 // GitHubRestAPI implements the RestAPI interface for GitHub repositories
 type GitHubRestAPI struct{}
@@ -93,9 +92,9 @@ func (api *GitHubRestAPI) BuildUrl(filter string, content string, phrase string)
 		urlString += phrase + "+in:name"
 	}
 	switch filter {
-	case Organization:
+	case "Organization":
 		urlString += "+org:"
-	case Owner:
+	case "Owner":
 		urlString += "+user:"
 	default:
 		urlString += "+org:"
@@ -122,10 +121,10 @@ func (api *GitHubRestAPI) DisplayResponse(response *http.Response, perPage int) 
 	totalPages := int(math.Ceil(float64(totalRepos) / float64(perPage)))
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		currentPage := getCurrentPage(r)
-		startIndex, endIndex := getPageIndices(currentPage, perPage, len(githubResponse.Items))
+		currentPage := paginationHandler.GetCurrentPage(r)
+		startIndex, endIndex := paginationHandler.GetPageIndices(currentPage, perPage, len(githubResponse.Items))
 		paginatedResponse := githubResponse.Items[startIndex:endIndex]
-		pageNumbers := getPageNumbers(currentPage, totalPages)
+		pageNumbers := paginationHandler.GetPageNumbers(currentPage, totalPages)
 
 		tmpl, err := template.ParseFiles("templates/repositories.html")
 		if err != nil {
@@ -133,7 +132,7 @@ func (api *GitHubRestAPI) DisplayResponse(response *http.Response, perPage int) 
 			return
 		}
 
-		queryParams := getQueryParams(r)
+		queryParams := paginationHandler.GetQueryParams(r)
 
 		data := struct {
 			Repositories []struct {
@@ -166,46 +165,6 @@ func (api *GitHubRestAPI) DisplayResponse(response *http.Response, perPage int) 
 
 	fmt.Println("Server is running at http://localhost:8080")
 	http.ListenAndServe(":8080", nil)
-}
-
-func getCurrentPage(r *http.Request) int {
-	query := r.URL.Query()
-	pageParam := query.Get("page")
-	currentPage := 1
-	if pageParam != "" {
-		currentPage, _ = strconv.Atoi(pageParam)
-	}
-	return currentPage
-}
-
-func getPageIndices(currentPage int, perPage int, totalItems int) (int, int) {
-	startIndex := (currentPage - 1) * perPage
-	endIndex := startIndex + perPage
-	if endIndex > totalItems {
-		endIndex = totalItems
-	}
-	return startIndex, endIndex
-}
-
-func getPageNumbers(currentPage int, totalPages int) []int {
-	startPage := int(math.Max(float64(currentPage-2), 1))
-	endPage := int(math.Min(float64(currentPage+2), float64(totalPages)))
-
-	pageNumbers := make([]int, endPage-startPage+1)
-	for i := startPage; i <= endPage; i++ {
-		pageNumbers[i-startPage] = i
-	}
-	return pageNumbers
-}
-
-func getQueryParams(r *http.Request) map[string]string {
-	queryParams := make(map[string]string)
-	for key, values := range r.URL.Query() {
-		if len(values) > 0 {
-			queryParams[key] = values[0]
-		}
-	}
-	return queryParams
 }
 
 func (api *GitHubRestAPI) FetchRepositoriesByType() {
