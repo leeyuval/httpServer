@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/AlecAivazis/survey/v2"
 	"html/template"
-	"httpServer/requestsHandlers"
 	"math"
 	"net/http"
 	"strconv"
@@ -15,13 +14,10 @@ const Organization = "Organization"
 const Owner = "Owner"
 
 const GitHubBaseUrl = "https://api.github.com/"
-const organizationFilterExt = "orgs/%s/repos"
-const ownerFilterExt = "users/%s/repos"
+const DefaultResultsPerPage = 12
 
 // GitHubRestAPI implements the RestAPI interface for GitHub repositories
-type GitHubRestAPI struct {
-	requestsHandlers.BasicRequestsHandler
-}
+type GitHubRestAPI struct{}
 
 type githubRepoJson struct {
 	Items []struct {
@@ -77,7 +73,7 @@ func (api *GitHubRestAPI) GetUserInput() (filter string, content string, phrase 
 	phraseQuestion := &survey.Question{
 		Name:     "Phrase",
 		Prompt:   &survey.Input{Message: "Please provide a phrase (optional):"},
-		Validate: nil, // Validation is not required for optional input
+		Validate: nil,
 	}
 
 	err = survey.Ask([]*survey.Question{phraseQuestion}, &input)
@@ -213,10 +209,10 @@ func (api *GitHubRestAPI) FetchRepositoriesByType() {
 
 	url := api.BuildUrl(filter, content, phrase)
 
-	response := api.SendGetRequest(url)
+	response, err := http.Get(url)
+	if err != nil {
+		println(err)
+	}
 
-	// Define the desired number of repositories per page
-	perPage := 12
-
-	api.DisplayResponse(response, perPage)
+	api.DisplayResponse(response, DefaultResultsPerPage)
 }
