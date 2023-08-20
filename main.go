@@ -14,8 +14,15 @@ var rdb *redis.Client
 
 func main() {
 	rdb = redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
+		Addr: "my-redis:6379",
 	})
+
+	pong, err := rdb.Ping(ctx).Result()
+	if err != nil {
+		log.Printf("Error pinging redis: %v", err)
+	} else {
+		log.Printf("Redis ping result: %v", pong)
+	}
 
 	r := mux.NewRouter()
 

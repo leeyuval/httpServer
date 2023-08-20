@@ -15,7 +15,6 @@ import (
 
 const PerPage = 10
 
-// GitHubRestAPI is an implementation of RestAPI interface for GitHub repositories.
 type GitHubRestAPI struct {
 	ctx   context.Context
 	rdb   *redis.Client
@@ -34,12 +33,6 @@ type GitHubJsonResponse struct {
 	} `json:"items"`
 }
 
-func (api *GitHubRestAPI) ConfigureRestAPI(ctx context.Context, rdb *redis.Client, route *mux.Router) {
-	api.ctx = ctx
-	api.rdb = rdb
-	api.route = route
-}
-
 type Repository struct {
 	Name         string
 	Owner        string
@@ -48,50 +41,10 @@ type Repository struct {
 	Stars        int
 }
 
-func paginate(jsonResponse GitHubJsonResponse, page int) ([]Repository, []int, int) {
-	startIndex := (page - 1) * PerPage
-	endIndex := startIndex + PerPage
-	if endIndex > len(jsonResponse.Items) {
-		endIndex = len(jsonResponse.Items)
-	}
-	paginatedResponse := jsonResponse.Items[startIndex:endIndex]
-
-	var repositories []Repository
-	for _, repo := range paginatedResponse {
-		repositories = append(repositories, Repository{
-			Name:         repo.Name,
-			Owner:        repo.Owner.Login,
-			URL:          repo.URL,
-			CreationTime: utils.FormatCreationTime(repo.CreationTime),
-			Stars:        repo.Stars,
-		})
-	}
-
-	totalPages := (len(jsonResponse.Items) + PerPage - 1) / PerPage
-	pageNumbers := make([]int, totalPages)
-	for i := range pageNumbers {
-		pageNumbers[i] = i + 1
-	}
-
-	return repositories, pageNumbers, totalPages
-}
-
-func getOrgNameAndPhrase(r *http.Request) (string, string) {
-	vars := mux.Vars(r)
-	org := vars["org"]
-	phrase, ok := vars["q"]
-	if !ok {
-		phrase = ""
-	}
-	return org, phrase
-}
-
-func generateHtmlTitle(org, phrase string) string {
-	title := fmt.Sprintf("GitHub Repositories of '%s'", org)
-	if phrase != "" {
-		title = fmt.Sprintf("GitHub Repositories of '%s' including the phrase '%s'", org, phrase)
-	}
-	return title
+func (api *GitHubRestAPI) ConfigureRestAPI(ctx context.Context, rdb *redis.Client, route *mux.Router) {
+	api.ctx = ctx
+	api.rdb = rdb
+	api.route = route
 }
 
 func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request) {
@@ -169,4 +122,50 @@ func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+}
+
+func paginate(jsonResponse GitHubJsonResponse, page int) ([]Repository, []int, int) {
+	startIndex := (page - 1) * PerPage
+	endIndex := startIndex + PerPage
+	if endIndex > len(jsonResponse.Items) {
+		endIndex = len(jsonResponse.Items)
+	}
+	paginatedResponse := jsonResponse.Items[startIndex:endIndex]
+
+	var repositories []Repository
+	for _, repo := range paginatedResponse {
+		repositories = append(repositories, Repository{
+			Name:         repo.Name,
+			Owner:        repo.Owner.Login,
+			URL:          repo.URL,
+			CreationTime: utils.FormatCreationTime(repo.CreationTime),
+			Stars:        repo.Stars,
+		})
+	}
+
+	totalPages := (len(jsonResponse.Items) + PerPage - 1) / PerPage
+	pageNumbers := make([]int, totalPages)
+	for i := range pageNumbers {
+		pageNumbers[i] = i + 1
+	}
+
+	return repositories, pageNumbers, totalPages
+}
+
+func getOrgNameAndPhrase(r *http.Request) (string, string) {
+	vars := mux.Vars(r)
+	org := vars["org"]
+	phrase, ok := vars["q"]
+	if !ok {
+		phrase = ""
+	}
+	return org, phrase
+}
+
+func generateHtmlTitle(org, phrase string) string {
+	title := fmt.Sprintf("GitHub Repositories of '%s'", org)
+	if phrase != "" {
+		title = fmt.Sprintf("GitHub Repositories of '%s' including the phrase '%s'", org, phrase)
+	}
+	return title
 }
