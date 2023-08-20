@@ -1,10 +1,30 @@
 package main
 
 import (
+	"context"
+	"github.com/go-redis/redis/v8"
+	"github.com/gorilla/mux"
 	"httpServer/restAPIs"
+	"log"
+	"net/http"
 )
 
+var ctx = context.Background()
+var rdb *redis.Client
+
 func main() {
+	rdb = redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+
+	r := mux.NewRouter()
+
 	var gitHubAPI restAPIs.GitHubRestAPI
-	gitHubAPI.FetchRepositoriesByType()
+	gitHubAPI.ConfigureRestAPI(ctx, rdb, r)
+
+	r.HandleFunc("/repositories/org/{org}", gitHubAPI.GetRepositories).Methods("GET")
+	r.HandleFunc("/repositories/org/{org}/q/{q}", gitHubAPI.GetRepositories).Methods("GET")
+
+	http.Handle("/", r)
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }

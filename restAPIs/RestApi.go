@@ -1,8 +1,13 @@
 package restAPIs
 
+import (
+	"github.com/go-redis/redis/v8"
+	"github.com/gorilla/mux"
+	"golang.org/x/net/context"
+	"net/http"
+)
+
 type RestAPI interface {
-	GetUserInput() (filter string, content string, err error)
-	BuildUrl(filter string, content string) string
-	DisplayResponse(response string)
-	FetchRepositoriesByType(filter string, content string)
+	ConfigureRestAPI(ctx context.Context, rdb *redis.Client, route *mux.Router)
+	GetRepositories(w http.ResponseWriter, r *http.Request)
 }

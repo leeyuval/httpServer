@@ -3,25 +3,22 @@ package restAPIs
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/AlecAivazis/survey/v2"
-	"html/template"
-	"httpServer/utils"
-	"math"
 	"net/http"
 	"time"
+
+	"github.com/go-redis/redis/v8"
+	"github.com/gorilla/mux"
+	"golang.org/x/net/context"
 )
 
-const (
-	GitHubBaseUrl         = "https://api.github.com/"
-	DefaultResultsPerPage = 12
-	FullTimeLayout        = "2006-01-02T15:04:05Z"
-	DisplayTimeLayout     = "2006-01-02 15:04"
-)
+// GitHubRestAPI is an implementation of RestAPI interface for GitHub repositories.
+type GitHubRestAPI struct {
+	ctx   context.Context
+	rdb   *redis.Client
+	route *mux.Router
+}
 
-// GitHubRestAPI implements the RestAPI interface for GitHub repositories
-type GitHubRestAPI struct{}
-
-type githubRepoJson struct {
+type GitHubJsonResponse struct {
 	Items []struct {
 		Name  string `json:"name"`
 		Owner struct {
@@ -33,153 +30,58 @@ type githubRepoJson struct {
 	} `json:"items"`
 }
 
-func (api *GitHubRestAPI) GetUserInput() (filter string, content string, phrase string, err error) {
-	var input struct {
-		Filter  string
-		Content string
-		Phrase  string
-	}
-
-	filterQuestion := []*survey.Question{
-		{
-			Name: "Filter",
-			Prompt: &survey.Select{
-				Message: "Please select a filter:",
-				Options: []string{"Organization", "Owner"},
-			},
-			Validate: survey.Required,
-		},
-	}
-
-	err = survey.Ask(filterQuestion, &input)
-	if err != nil {
-		return "", "", "", err
-	}
-
-	contentPrompts := map[string]string{
-		"Organization": "Please provide organization name:",
-		"Owner":        "Please provide owner name:",
-	}
-
-	contentQuestion := &survey.Question{
-		Name:     "Content",
-		Prompt:   &survey.Input{Message: contentPrompts[input.Filter]},
-		Validate: survey.Required,
-	}
-
-	err = survey.Ask([]*survey.Question{contentQuestion}, &input)
-	if err != nil {
-		return "", "", "", err
-	}
-
-	phraseQuestion := &survey.Question{
-		Name:     "Phrase",
-		Prompt:   &survey.Input{Message: "Please provide a phrase (optional):"},
-		Validate: nil,
-	}
-
-	err = survey.Ask([]*survey.Question{phraseQuestion}, &input)
-	if err != nil {
-		return "", "", "", err
-	}
-
-	return input.Filter, input.Content, input.Phrase, nil
+func (api *GitHubRestAPI) ConfigureRestAPI(ctx context.Context, rdb *redis.Client, route *mux.Router) {
+	api.ctx = ctx
+	api.rdb = rdb
+	api.route = route
 }
 
-func (api *GitHubRestAPI) BuildUrl(filter string, content string, phrase string) string {
-	var urlString = GitHubBaseUrl + "search/repositories?q="
+func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	org := vars["org"]
+	phrase, ok := vars["q"]
+	if ok {
+		fmt.Fprintf(w, "You've requested the repositories of: %s with the phrase: %s\n", org, phrase)
+	} else {
+		fmt.Fprintf(w, "You've requested the repositories of: %s\n", org)
+	}
+	apiURL := fmt.Sprintf("https://api.github.com/search/repositories?q=%s+in:name+org:%s", phrase, org)
+	fmt.Println(apiURL)
+
+	// Fetch repositories from Redis cache if available
+	cacheKey := org + ":" + phrase
+	cacheResult, err := api.rdb.Get(api.ctx, cacheKey).Result()
+	if err == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(cacheResult))
+		return
+	}
+
+	// Fetch repositories from GitHub API
+	resp, err := http.Get(apiURL)
+	if err != nil {
+		http.Error(w, "Error fetching data from GitHub API", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	var jsonResponse GitHubJsonResponse
+
+	err = json.NewDecoder(resp.Body).Decode(&jsonResponse)
+	if err != nil {
+		http.Error(w, "Error decoding GitHub API response", http.StatusInternalServerError)
+		return
+	}
+
+	// Cache the JSON response in Redis
+	cacheTTL := 1 // Cache for 1 second
 	if phrase != "" {
-		urlString += phrase + "+in:name"
+		// Longer cache TTL when phrase is included
+		cacheTTL = 10 // Cache for 10 seconds
 	}
-	switch filter {
-	case "Organization":
-		urlString += "+org:"
-	case "Owner":
-		urlString += "+user:"
-	default:
-		urlString += "+org:"
-	}
-	url := urlString + content
-	return url
-}
+	cacheResultJSON, _ := json.Marshal(jsonResponse)
+	api.rdb.Set(api.ctx, cacheKey, cacheResultJSON, time.Duration(cacheTTL)*time.Second)
 
-func (api *GitHubRestAPI) DisplayResponse(response *http.Response, perPage int) {
-	var githubResponse githubRepoJson
-
-	err := json.NewDecoder(response.Body).Decode(&githubResponse)
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-
-	for i, repo := range githubResponse.Items {
-		t, _ := time.Parse(FullTimeLayout, repo.CreationTime)
-		githubResponse.Items[i].CreationTime = t.Format(DisplayTimeLayout)
-	}
-
-	totalRepos := len(githubResponse.Items)
-	totalPages := int(math.Ceil(float64(totalRepos) / float64(perPage)))
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		currentPage := paginationHandler.GetCurrentPage(r)
-		startIndex, endIndex := paginationHandler.GetPageIndices(currentPage, perPage, len(githubResponse.Items))
-		paginatedResponse := githubResponse.Items[startIndex:endIndex]
-		pageNumbers := paginationHandler.GetPageNumbers(currentPage, totalPages)
-
-		tmpl, err := template.ParseFiles("templates/repositories.html")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		queryParams := paginationHandler.GetQueryParams(r)
-
-		data := struct {
-			Repositories []struct {
-				Name  string `json:"name"`
-				Owner struct {
-					Login string `json:"login"`
-				} `json:"owner"`
-				URL          string `json:"html_url"`
-				CreationTime string `json:"created_at"`
-				Stars        int    `json:"stargazers_count"`
-			}
-			CurrentPage int
-			PageNumbers []int
-			BaseUrl     string
-			QueryParams map[string]string
-		}{
-			Repositories: paginatedResponse,
-			CurrentPage:  currentPage,
-			PageNumbers:  pageNumbers,
-			BaseUrl:      response.Request.URL.Path,
-			QueryParams:  queryParams,
-		}
-
-		err = tmpl.Execute(w, data)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	})
-
-	fmt.Println("Server is running at http://localhost:8080")
-	http.ListenAndServe(":8080", nil)
-}
-
-func (api *GitHubRestAPI) FetchRepositoriesByType() {
-	filter, content, phrase, err := api.GetUserInput()
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-
-	url := api.BuildUrl(filter, content, phrase)
-
-	response, err := http.Get(url)
-	if err != nil {
-		println(err)
-	}
-
-	api.DisplayResponse(response, DefaultResultsPerPage)
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(cacheResultJSON)
 }
