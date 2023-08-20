@@ -3,15 +3,12 @@ package restAPIs
 import (
 	"encoding/json"
 	"fmt"
-	"html/template"
-	"httpServer/utils"
-	"net/http"
-	"strconv"
-	"time"
-
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/mux"
 	"golang.org/x/net/context"
+	"httpServer/utils"
+	"net/http"
+	"strconv"
 )
 
 const PerPage = 10
@@ -49,7 +46,7 @@ type Repository struct {
 	Stars        int
 }
 
-func paginateRepositories(jsonResponse GitHubJsonResponse, page int) ([]Repository, []int, int) {
+func paginate(jsonResponse GitHubJsonResponse, page int) ([]Repository, []int, int) {
 	startIndex := (page - 1) * PerPage
 	endIndex := startIndex + PerPage
 	if endIndex > len(jsonResponse.Items) {
@@ -77,30 +74,30 @@ func paginateRepositories(jsonResponse GitHubJsonResponse, page int) ([]Reposito
 	return repositories, pageNumbers, totalPages
 }
 
-func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request) {
+func getOrgNameAndPhrase(r *http.Request) (string, string) {
 	vars := mux.Vars(r)
 	org := vars["org"]
 	phrase, ok := vars["q"]
 	if !ok {
 		phrase = ""
 	}
+	return org, phrase
+}
 
+func generateHtmlTitle(org, phrase string) string {
 	title := fmt.Sprintf("GitHub Repositories of '%s'", org)
-
-	if ok && phrase != "" {
+	if phrase != "" {
 		title = fmt.Sprintf("GitHub Repositories of '%s' including the phrase '%s'", org, phrase)
 	}
+	return title
+}
+
+func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request) {
+	org, phrase := getOrgNameAndPhrase(r)
+
+	title := generateHtmlTitle(org, phrase)
 
 	apiURL := fmt.Sprintf("https://api.github.com/search/repositories?q=%s+in:name+org:%s", phrase, org)
-
-	// Fetch repositories from Redis cache if available
-	cacheKey := org + ":" + phrase
-	cacheResult, err := api.rdb.Get(api.ctx, cacheKey).Result()
-	if err == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(cacheResult))
-		return
-	}
 
 	// Fetch repositories from GitHub API
 	resp, err := http.Get(apiURL)
@@ -118,30 +115,13 @@ func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Cache the JSON response in Redis
-	cacheTTL := 1 // Cache for 1 second
-	if phrase != "" {
-		// Longer cache TTL when phrase is included
-		cacheTTL = 10 // Cache for 10 seconds
-	}
-	cacheResultJSON, _ := json.Marshal(jsonResponse)
-	api.rdb.Set(api.ctx, cacheKey, cacheResultJSON, time.Duration(cacheTTL)*time.Second)
-
-	// Pagination
+	// Pagination Support
 	pageParam := r.URL.Query().Get("page")
 	page, _ := strconv.Atoi(pageParam)
 	if page <= 0 {
 		page = 1
 	}
-
-	// Paginate repositories using the new function
-	paginatedResponse, pageNumbers, totalPages := paginateRepositories(jsonResponse, page)
-
-	tmpl, err := template.ParseFiles("templates/repositories.html")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	paginatedResponse, pageNumbers, totalPages := paginate(jsonResponse, page)
 
 	data := struct {
 		Repositories []Repository
@@ -157,8 +137,8 @@ func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request
 		TotalPages:   totalPages,
 	}
 
-	w.Header().Set("Content-Type", "text/html")
-	err = tmpl.Execute(w, data)
+	// Render the HTML template
+	err = utils.RenderHTMLTemplate(w, "templates/repositories.html", data)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
