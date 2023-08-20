@@ -3,6 +3,9 @@ package restAPIs
 import (
 	"encoding/json"
 	"fmt"
+	"html/template"
+	"httpServer/utils"
+	"math"
 	"net/http"
 	"time"
 
@@ -82,6 +85,49 @@ func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request
 	cacheResultJSON, _ := json.Marshal(jsonResponse)
 	api.rdb.Set(api.ctx, cacheKey, cacheResultJSON, time.Duration(cacheTTL)*time.Second)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(cacheResultJSON)
+	// Use pagination utilities
+	currentPage := paginationHandler.GetCurrentPage(r)
+	perPage := 10 // Number of items per page
+	totalItems := len(jsonResponse.Items)
+	totalPages := int(math.Ceil(float64(totalItems) / float64(perPage)))
+	startIndex, endIndex := paginationHandler.GetPageIndices(currentPage, perPage, totalItems)
+	paginatedResponse := jsonResponse.Items[startIndex:endIndex]
+	pageNumbers := paginationHandler.GetPageNumbers(currentPage, totalPages)
+
+	tmpl, err := template.ParseFiles("templates/repositories.html")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	queryParams := paginationHandler.GetQueryParams(r)
+
+	data := struct {
+		Repositories []struct {
+			Name  string `json:"name"`
+			Owner struct {
+				Login string `json:"login"`
+			} `json:"owner"`
+			URL          string `json:"html_url"`
+			CreationTime string `json:"created_at"`
+			Stars        int    `json:"stargazers_count"`
+		}
+		CurrentPage int
+		PageNumbers []int
+		BaseUrl     string
+		QueryParams map[string]string
+	}{
+		Repositories: paginatedResponse,
+		CurrentPage:  currentPage,
+		PageNumbers:  pageNumbers,
+		BaseUrl:      r.URL.Path,
+		QueryParams:  queryParams,
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	err = tmpl.Execute(w, data)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
