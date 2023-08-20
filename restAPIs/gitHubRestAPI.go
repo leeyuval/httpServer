@@ -7,8 +7,10 @@ import (
 	"github.com/gorilla/mux"
 	"golang.org/x/net/context"
 	"httpServer/utils"
+	"log"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 const PerPage = 10
@@ -94,34 +96,58 @@ func generateHtmlTitle(org, phrase string) string {
 
 func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request) {
 	org, phrase := getOrgNameAndPhrase(r)
-
-	title := generateHtmlTitle(org, phrase)
-
-	apiURL := fmt.Sprintf("https://api.github.com/search/repositories?q=%s+in:name+org:%s", phrase, org)
-
-	// Fetch repositories from GitHub API
-	resp, err := http.Get(apiURL)
-	if err != nil {
-		http.Error(w, "Error fetching data from GitHub API", http.StatusInternalServerError)
-		return
-	}
-	defer resp.Body.Close()
-
-	var jsonResponse GitHubJsonResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&jsonResponse)
-	if err != nil {
-		http.Error(w, "Error decoding GitHub API response", http.StatusInternalServerError)
-		return
-	}
-
-	// Pagination Support
+	cacheKey := fmt.Sprintf("%s:%s", org, phrase)
 	pageParam := r.URL.Query().Get("page")
 	page, _ := strconv.Atoi(pageParam)
-	if page <= 0 {
+	if page < 1 {
 		page = 1
 	}
-	paginatedResponse, pageNumbers, totalPages := paginate(jsonResponse, page)
+
+	var jsonResponse GitHubJsonResponse
+	var paginatedResponse []Repository
+	var pageNumbers []int
+	var totalPages int
+
+	// Check if data is in cache
+	cachedData, err := api.rdb.Get(api.ctx, cacheKey).Result()
+	if err == nil {
+		err := json.Unmarshal([]byte(cachedData), &jsonResponse)
+		if err != nil {
+			http.Error(w, "Error decoding cached data", http.StatusInternalServerError)
+			return
+		}
+
+		paginatedResponse, pageNumbers, totalPages = paginate(jsonResponse, page)
+	} else {
+		apiURL := fmt.Sprintf("https://api.github.com/search/repositories?q=%s+in:name+org:%s", phrase, org)
+
+		// Fetch repositories from GitHub API
+		resp, err := http.Get(apiURL)
+		if err != nil {
+			http.Error(w, "Error fetching data from GitHub API", http.StatusInternalServerError)
+			return
+		}
+		defer resp.Body.Close()
+
+		err = json.NewDecoder(resp.Body).Decode(&jsonResponse)
+		if err != nil {
+			http.Error(w, "Error decoding GitHub API response", http.StatusInternalServerError)
+			return
+		}
+
+		paginatedResponse, pageNumbers, totalPages = paginate(jsonResponse, page)
+
+		// Store data in cache
+		cachedDataBytes, _ := json.Marshal(jsonResponse)
+		result := api.rdb.Set(api.ctx, cacheKey, cachedDataBytes, time.Hour*12)
+		if result.Err() == nil {
+			log.Println("Data stored in cache successfully.")
+		} else {
+			log.Println(result.Err())
+		}
+	}
+
+	title := generateHtmlTitle(org, phrase)
 
 	data := struct {
 		Repositories []Repository
