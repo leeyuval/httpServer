@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"httpServer/utils"
 	"net/http"
 	"strconv"
 	"time"
@@ -12,6 +13,8 @@ import (
 	"github.com/gorilla/mux"
 	"golang.org/x/net/context"
 )
+
+const PerPage = 10
 
 // GitHubRestAPI is an implementation of RestAPI interface for GitHub repositories.
 type GitHubRestAPI struct {
@@ -38,6 +41,42 @@ func (api *GitHubRestAPI) ConfigureRestAPI(ctx context.Context, rdb *redis.Clien
 	api.route = route
 }
 
+type Repository struct {
+	Name         string
+	Owner        string
+	URL          string
+	CreationTime string
+	Stars        int
+}
+
+func paginateRepositories(jsonResponse GitHubJsonResponse, page int) ([]Repository, []int, int) {
+	startIndex := (page - 1) * PerPage
+	endIndex := startIndex + PerPage
+	if endIndex > len(jsonResponse.Items) {
+		endIndex = len(jsonResponse.Items)
+	}
+	paginatedResponse := jsonResponse.Items[startIndex:endIndex]
+
+	var repositories []Repository
+	for _, repo := range paginatedResponse {
+		repositories = append(repositories, Repository{
+			Name:         repo.Name,
+			Owner:        repo.Owner.Login,
+			URL:          repo.URL,
+			CreationTime: utils.FormatCreationTime(repo.CreationTime),
+			Stars:        repo.Stars,
+		})
+	}
+
+	totalPages := (len(jsonResponse.Items) + PerPage - 1) / PerPage
+	pageNumbers := make([]int, totalPages)
+	for i := range pageNumbers {
+		pageNumbers[i] = i + 1
+	}
+
+	return repositories, pageNumbers, totalPages
+}
+
 func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	org := vars["org"]
@@ -46,7 +85,7 @@ func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request
 		phrase = ""
 	}
 
-	title := fmt.Sprintf("GitHub Repositories of %s", org)
+	title := fmt.Sprintf("GitHub Repositories of '%s'", org)
 
 	if ok && phrase != "" {
 		title = fmt.Sprintf("GitHub Repositories of '%s' including the phrase '%s'", org, phrase)
@@ -94,13 +133,9 @@ func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request
 	if page <= 0 {
 		page = 1
 	}
-	perPage := 10 // Number of items per page
-	startIndex := (page - 1) * perPage
-	endIndex := startIndex + perPage
-	if endIndex > len(jsonResponse.Items) {
-		endIndex = len(jsonResponse.Items)
-	}
-	paginatedResponse := jsonResponse.Items[startIndex:endIndex]
+
+	// Paginate repositories using the new function
+	paginatedResponse, pageNumbers, totalPages := paginateRepositories(jsonResponse, page)
 
 	tmpl, err := template.ParseFiles("templates/repositories.html")
 	if err != nil {
@@ -108,46 +143,18 @@ func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Calculate total pages and generate page numbers
-	totalPages := (len(jsonResponse.Items) + perPage - 1) / perPage
-	pageNumbers := make([]int, totalPages)
-	for i := range pageNumbers {
-		pageNumbers[i] = i + 1
-	}
-
 	data := struct {
-		Repositories []struct {
-			Name         string
-			Owner        string
-			URL          string
-			CreationTime string
-			Stars        int
-		}
-		Title       string
-		CurrentPage int
-		PageNumbers []int
-		TotalPages  int
+		Repositories []Repository
+		Title        string
+		CurrentPage  int
+		PageNumbers  []int
+		TotalPages   int
 	}{
-		Repositories: make([]struct {
-			Name         string
-			Owner        string
-			URL          string
-			CreationTime string
-			Stars        int
-		}, len(paginatedResponse)),
-		Title:       title,
-		CurrentPage: page,
-		PageNumbers: pageNumbers,
-		TotalPages:  totalPages,
-	}
-
-	for i, repo := range paginatedResponse {
-		data.Repositories[i].Name = repo.Name
-		data.Repositories[i].Owner = repo.Owner.Login
-		data.Repositories[i].URL = repo.URL
-		creationTime, _ := time.Parse(time.RFC3339, repo.CreationTime)
-		data.Repositories[i].CreationTime = creationTime.Format("2006-01-02 15:04")
-		data.Repositories[i].Stars = repo.Stars
+		Repositories: paginatedResponse,
+		Title:        title,
+		CurrentPage:  page,
+		PageNumbers:  pageNumbers,
+		TotalPages:   totalPages,
 	}
 
 	w.Header().Set("Content-Type", "text/html")

@@ -1,4 +1,4 @@
-package paginationHandler
+package utils
 
 import (
 	"math"
