@@ -4,9 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"httpServer/utils"
-	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -43,13 +42,17 @@ func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request
 	vars := mux.Vars(r)
 	org := vars["org"]
 	phrase, ok := vars["q"]
-	if ok {
-		fmt.Fprintf(w, "You've requested the repositories of: %s with the phrase: %s\n", org, phrase)
-	} else {
-		fmt.Fprintf(w, "You've requested the repositories of: %s\n", org)
+	if !ok {
+		phrase = ""
 	}
+
+	title := fmt.Sprintf("GitHub Repositories of %s", org)
+
+	if ok && phrase != "" {
+		title = fmt.Sprintf("GitHub Repositories of '%s' including the phrase '%s'", org, phrase)
+	}
+
 	apiURL := fmt.Sprintf("https://api.github.com/search/repositories?q=%s+in:name+org:%s", phrase, org)
-	fmt.Println(apiURL)
 
 	// Fetch repositories from Redis cache if available
 	cacheKey := org + ":" + phrase
@@ -85,14 +88,19 @@ func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request
 	cacheResultJSON, _ := json.Marshal(jsonResponse)
 	api.rdb.Set(api.ctx, cacheKey, cacheResultJSON, time.Duration(cacheTTL)*time.Second)
 
-	// Use pagination utilities
-	currentPage := paginationHandler.GetCurrentPage(r)
+	// Pagination
+	pageParam := r.URL.Query().Get("page")
+	page, _ := strconv.Atoi(pageParam)
+	if page <= 0 {
+		page = 1
+	}
 	perPage := 10 // Number of items per page
-	totalItems := len(jsonResponse.Items)
-	totalPages := int(math.Ceil(float64(totalItems) / float64(perPage)))
-	startIndex, endIndex := paginationHandler.GetPageIndices(currentPage, perPage, totalItems)
+	startIndex := (page - 1) * perPage
+	endIndex := startIndex + perPage
+	if endIndex > len(jsonResponse.Items) {
+		endIndex = len(jsonResponse.Items)
+	}
 	paginatedResponse := jsonResponse.Items[startIndex:endIndex]
-	pageNumbers := paginationHandler.GetPageNumbers(currentPage, totalPages)
 
 	tmpl, err := template.ParseFiles("templates/repositories.html")
 	if err != nil {
@@ -100,28 +108,46 @@ func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	queryParams := paginationHandler.GetQueryParams(r)
+	// Calculate total pages and generate page numbers
+	totalPages := (len(jsonResponse.Items) + perPage - 1) / perPage
+	pageNumbers := make([]int, totalPages)
+	for i := range pageNumbers {
+		pageNumbers[i] = i + 1
+	}
 
 	data := struct {
 		Repositories []struct {
-			Name  string `json:"name"`
-			Owner struct {
-				Login string `json:"login"`
-			} `json:"owner"`
-			URL          string `json:"html_url"`
-			CreationTime string `json:"created_at"`
-			Stars        int    `json:"stargazers_count"`
+			Name         string
+			Owner        string
+			URL          string
+			CreationTime string
+			Stars        int
 		}
+		Title       string
 		CurrentPage int
 		PageNumbers []int
-		BaseUrl     string
-		QueryParams map[string]string
+		TotalPages  int
 	}{
-		Repositories: paginatedResponse,
-		CurrentPage:  currentPage,
-		PageNumbers:  pageNumbers,
-		BaseUrl:      r.URL.Path,
-		QueryParams:  queryParams,
+		Repositories: make([]struct {
+			Name         string
+			Owner        string
+			URL          string
+			CreationTime string
+			Stars        int
+		}, len(paginatedResponse)),
+		Title:       title,
+		CurrentPage: page,
+		PageNumbers: pageNumbers,
+		TotalPages:  totalPages,
+	}
+
+	for i, repo := range paginatedResponse {
+		data.Repositories[i].Name = repo.Name
+		data.Repositories[i].Owner = repo.Owner.Login
+		data.Repositories[i].URL = repo.URL
+		creationTime, _ := time.Parse(time.RFC3339, repo.CreationTime)
+		data.Repositories[i].CreationTime = creationTime.Format("2006-01-02 15:04")
+		data.Repositories[i].Stars = repo.Stars
 	}
 
 	w.Header().Set("Content-Type", "text/html")

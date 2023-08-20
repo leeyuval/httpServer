@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>GitHub Repositories</title>
+    <title>{{.Title}}</title>
     <style>
         body {
             font-family: Tahoma, sans-serif;
@@ -35,16 +35,21 @@
             margin-top: 20px;
         }
         .pagination a {
-            font-size: 20px;
+            font-size: 25px;
             padding: 5px 10px;
             margin: 0 5px;
             color: #2980b9;
             text-decoration: none;
         }
+        .pagination strong {
+            font-size: 25px;
+            padding: 5px 10px;
+            margin: 0 5px;
+        }
     </style>
 </head>
 <body>
-<h1>Founded GitHub Repositories:</h1>
+<h1>{{.Title}}</h1>
 <table>
     <thead>
     <tr>
@@ -59,7 +64,7 @@
     {{range .Repositories}}
     <tr>
         <td>{{.Name}}</td>
-        <td>{{.Owner.Login}}</td>
+        <td>{{.Owner}}</td>
         <td><a href="{{.URL}}" target="_blank">{{.URL}}</a></td>
         <td>{{.CreationTime}}</td>
         <td>{{.Stars}}</td>
@@ -69,10 +74,14 @@
 </table>
 
 <div class="pagination">
+    Page {{.CurrentPage}} of {{.TotalPages}} |
     {{range .PageNumbers}}
+    {{if eq . $.CurrentPage}}
+    <strong>{{.}}</strong>
+    {{else}}
     <a href="?page={{.}}">{{.}}</a>
     {{end}}
+    {{end}}
 </div>
-
 </body>
 </html>
