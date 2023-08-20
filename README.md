@@ -1,65 +1,78 @@
-# GitHub Repository Search Tool
+# GitHub Repositories Collector
 
-This is a command-line tool that allows you to search for GitHub repositories based on different filters such as organization or owner.
+The GitHub Repositories Collector is a Go application that fetches and displays GitHub repository information based on organization and query phrase. It uses the Gorilla Mux router for handling HTTP requests and Redis for caching the fetched data.
 
 ## Table of Contents
 
-- [Introduction](#introduction)
-- [Features](#features)
 - [Prerequisites](#prerequisites)
+- [Getting Started](#getting-started)
+  - [Running with Docker](#running-with-docker)
+  - [Running Locally](#running-locally)
 - [Usage](#usage)
+- [Endpoints](#endpoints)
 - [Configuration](#configuration)
-- [License](#license)
-
-## Introduction
-
-This tool leverages the GitHub API to search for repositories and provides a user-friendly command-line interface. It lets you filter repositories based on organization or owner, and you can optionally provide a search phrase to narrow down results.
-
-## Features
-
-- Search GitHub repositories by various filters.
-- Specify organization or owner for repository search.
-- Include an optional search phrase for more specific results.
-- Pagination support for viewing multiple pages of search results.
-- Display search results in a user-friendly table format.
 
 ## Prerequisites
 
-Before using this tool, ensure you have the following:
+Before running this application, you need to have the following software installed:
 
-- Go programming language installed (at least version 1.20).
-- An active internet connection to access the GitHub API.
+- Docker (optional, if you're using Docker - recommended)
+- Go
+- Redis
+
+## Getting Started
+
+Follow these steps to get the application up and running:
+
+### Running with Docker
+
+1. Make sure you have Docker installed.
+2. Clone this repository to your local machine.
+3. Open a terminal and navigate to the root directory of the cloned repository.
+4. Run the following command to build and start the application along with Redis:
+
+```bash
+docker-compose up
+```
+
+### Running Locally
+
+1. Clone this repository to your local machine.
+2. Install Go and Redis if you haven't already.
+3. Open a terminal and navigate to the root directory of the cloned repository.
+4. Run the following command to build the application:
+
+```bash
+go build -o main .
+```
+
+5. Start the Redis server.
+6. Run the application:
+
+```bash
+./main
+```
+
+The application will be available at `http://localhost:8080`.
 
 ## Usage
 
-1. Clone or download this repository to your local machine.
+The application allows you to fetch and display GitHub repository information based on organization and query phrase.
 
-2. Open a terminal and navigate to the project directory.
+You can access the endpoints using the following URLs:
 
-3. Run the following command to build the project:
+- `http://localhost:8080/repositories/org/{org}`: Fetches and displays repositories for a specific organization.
+- `http://localhost:8080/repositories/org/{org}/q/{q}`: Fetches and displays repositories for a specific organization with a query phrase.
 
-   ```shell
-   go build -o github-repo-search
-   ```
+Replace `{org}` with the organization name and `{q}` with the query phrase.
 
-4. Run the tool with the following command:
+## Endpoints
 
-   ```shell
-   ./github-repo-search
-   ```
-
-5. Follow the on-screen prompts to input the search filters and phrase.
-
-6. View the search results displayed in a user-friendly table.
+- `GET /repositories/org/{org}`: Fetches and displays repositories for a specific organization.
+- `GET /repositories/org/{org}/q/{q}`: Fetches and displays repositories for a specific organization with a query phrase.
 
 ## Configuration
 
-There are no external configuration files required for this tool. It uses the GitHub API to perform searches, and you don't need to provide any API keys.
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
+The application's configuration can be found in the `main.go` file. You can configure the Redis address and other settings there.
 
 ---
-
-Feel free to modify and customize this README template according to your project's details and requirements. Make sure to include relevant information to help users understand and use your project effectively.

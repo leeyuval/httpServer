@@ -1,4 +1,4 @@
-package restAPIs
+package repositoriesCollectors
 
 import (
 	"encoding/json"
@@ -13,14 +13,20 @@ import (
 	"time"
 )
 
+// ** Constants **
+
 const PerPage = 10
 
-type GitHubRestAPI struct {
-	ctx   context.Context
-	rdb   *redis.Client
-	route *mux.Router
+// ** Types **
+
+// GitHubReposCollector collects and manages GitHub repository information.
+type GitHubReposCollector struct {
+	ctx   context.Context // The context for handling requests.
+	rdb   *redis.Client   // The Redis client for caching data.
+	route *mux.Router     // The router for defining API endpoints.
 }
 
+// GitHubJsonResponse defines the structure of the JSON response from the GitHub API.
 type GitHubJsonResponse struct {
 	Items []struct {
 		Name  string `json:"name"`
@@ -33,6 +39,7 @@ type GitHubJsonResponse struct {
 	} `json:"items"`
 }
 
+// Repository represents a GitHub repository's information structure.
 type Repository struct {
 	Name         string
 	Owner        string
@@ -41,13 +48,45 @@ type Repository struct {
 	Stars        int
 }
 
-func (api *GitHubRestAPI) ConfigureRestAPI(ctx context.Context, rdb *redis.Client, route *mux.Router) {
+// ** Methods **
+
+// ConfigureCollector configures the GitHubReposCollector with necessary dependencies.
+func (api *GitHubReposCollector) ConfigureCollector(ctx context.Context, rdb *redis.Client, route *mux.Router) {
 	api.ctx = ctx
 	api.rdb = rdb
 	api.route = route
 }
 
-func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request) {
+// getCachedData retrieves cached GitHub JSON response data based on a cache key.
+// It returns the cached data or an error if retrieval or decoding fails.
+func (api *GitHubReposCollector) getCachedData(cacheKey string) (GitHubJsonResponse, error) {
+	cachedData, err := api.rdb.Get(api.ctx, cacheKey).Result()
+	if err != nil {
+		return GitHubJsonResponse{}, err
+	}
+
+	var jsonResponse GitHubJsonResponse
+	err = json.Unmarshal([]byte(cachedData), &jsonResponse)
+	if err != nil {
+		return GitHubJsonResponse{}, err
+	}
+
+	return jsonResponse, nil
+}
+
+// storeDataInCache stores GitHub JSON response data in the cache using a cache key.
+func (api *GitHubReposCollector) storeDataInCache(cacheKey string, data GitHubJsonResponse) {
+	cachedDataBytes, _ := json.Marshal(data)
+	result := api.rdb.Set(api.ctx, cacheKey, cachedDataBytes, time.Hour*12)
+	if result.Err() == nil {
+		log.Println("Data stored in cache successfully.")
+	} else {
+		log.Println(result.Err())
+	}
+}
+
+// GetRepositories is an HTTP handler that fetches and displays GitHub repositories based on organization and phrase.
+func (api *GitHubReposCollector) GetRepositories(w http.ResponseWriter, r *http.Request) {
 	org, phrase := getOrgNameAndPhrase(r)
 	cacheKey := fmt.Sprintf("%s:%s", org, phrase)
 	pageParam := r.URL.Query().Get("page")
@@ -56,20 +95,13 @@ func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request
 		page = 1
 	}
 
-	var jsonResponse GitHubJsonResponse
 	var paginatedResponse []Repository
 	var pageNumbers []int
 	var totalPages int
 
 	// Check if data is in cache
-	cachedData, err := api.rdb.Get(api.ctx, cacheKey).Result()
+	jsonResponse, err := api.getCachedData(cacheKey)
 	if err == nil {
-		err := json.Unmarshal([]byte(cachedData), &jsonResponse)
-		if err != nil {
-			http.Error(w, "Error decoding cached data", http.StatusInternalServerError)
-			return
-		}
-
 		paginatedResponse, pageNumbers, totalPages = paginate(jsonResponse, page)
 	} else {
 		apiURL := fmt.Sprintf("https://api.github.com/search/repositories?q=%s+in:name+org:%s", phrase, org)
@@ -91,13 +123,7 @@ func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request
 		paginatedResponse, pageNumbers, totalPages = paginate(jsonResponse, page)
 
 		// Store data in cache
-		cachedDataBytes, _ := json.Marshal(jsonResponse)
-		result := api.rdb.Set(api.ctx, cacheKey, cachedDataBytes, time.Hour*12)
-		if result.Err() == nil {
-			log.Println("Data stored in cache successfully.")
-		} else {
-			log.Println(result.Err())
-		}
+		api.storeDataInCache(cacheKey, jsonResponse)
 	}
 
 	title := generateHtmlTitle(org, phrase)
@@ -124,6 +150,9 @@ func (api *GitHubRestAPI) GetRepositories(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// ** Functions **
+
+// paginate performs pagination on the GitHub JSON response.
 func paginate(jsonResponse GitHubJsonResponse, page int) ([]Repository, []int, int) {
 	startIndex := (page - 1) * PerPage
 	endIndex := startIndex + PerPage
@@ -152,6 +181,7 @@ func paginate(jsonResponse GitHubJsonResponse, page int) ([]Repository, []int, i
 	return repositories, pageNumbers, totalPages
 }
 
+// getOrgNameAndPhrase extracts organization and query phrase from the request.
 func getOrgNameAndPhrase(r *http.Request) (string, string) {
 	vars := mux.Vars(r)
 	org := vars["org"]
@@ -162,6 +192,7 @@ func getOrgNameAndPhrase(r *http.Request) (string, string) {
 	return org, phrase
 }
 
+// generateHtmlTitle generates the HTML title for the repository listing page.
 func generateHtmlTitle(org, phrase string) string {
 	title := fmt.Sprintf("GitHub Repositories of '%s'", org)
 	if phrase != "" {

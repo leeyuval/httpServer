@@ -4,7 +4,7 @@ import (
 	"context"
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/mux"
-	"httpServer/restAPIs"
+	"httpServer/repositoriesCollectors"
 	"log"
 	"net/http"
 )
@@ -17,17 +17,10 @@ func main() {
 		Addr: "my-redis:6379",
 	})
 
-	pong, err := rdb.Ping(ctx).Result()
-	if err != nil {
-		log.Printf("Error pinging redis: %v", err)
-	} else {
-		log.Printf("Redis ping result: %v", pong)
-	}
-
 	r := mux.NewRouter()
 
-	var gitHubAPI restAPIs.GitHubRestAPI
-	gitHubAPI.ConfigureRestAPI(ctx, rdb, r)
+	var gitHubAPI repositoriesCollectors.GitHubReposCollector
+	gitHubAPI.ConfigureCollector(ctx, rdb, r)
 
 	r.HandleFunc("/repositories/org/{org}", gitHubAPI.GetRepositories).Methods("GET")
 	r.HandleFunc("/repositories/org/{org}/q/{q}", gitHubAPI.GetRepositories).Methods("GET")
