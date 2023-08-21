@@ -2,6 +2,7 @@ package httpServer_tests
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/mux"
 	"httpServer/cacheDBs"
@@ -12,39 +13,51 @@ import (
 )
 
 var ctx = context.Background()
-var rdb *redis.Client
 
 func TestGetRepositories(t *testing.T) {
-	rdb = redis.NewClient(&redis.Options{
-		Addr: "my-redis:6379",
+	rdb := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
 	})
 
-	cache := cacheDBs.NewRedisDB(rdb)
-
+	// Create a new Gorilla Mux router
 	r := mux.NewRouter()
 
+	// Create Redis cache
+	cache := cacheDBs.NewRedisDB(rdb)
+
+	// Configure GitHub API collector
 	var gitHubAPI repositoriesCollectors.GitHubReposCollector
 	gitHubAPI.ConfigureCollector(ctx, rdb, r, cache)
 
-	r.HandleFunc("/repositories/org/{org}", gitHubAPI.GetRepositories).Methods("GET")
-	r.HandleFunc("/repositories/org/{org}/q/{q}", gitHubAPI.GetRepositories).Methods("GET")
+	// Define routes
+	gitHubAPI.SetupRoutes(r)
 
-	req, err := http.NewRequest("GET", "/repositories/org/github", nil)
+	// Create a new HTTP request
+	req, err := http.NewRequest("GET", "/repositories?org=github&phrase=go&page=1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	// Create a ResponseRecorder to record the response
 	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, req)
+	handler := http.HandlerFunc(gitHubAPI.GetRepositories)
 
+	// Serve the HTTP request and record the response
+	handler.ServeHTTP(rr, req)
+
+	// Check the status code of the response
 	if status := rr.Code; status != http.StatusOK {
-		t.Errorf("handler returned wrong status code: got %v want %v",
-			status, http.StatusOK)
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
 	}
 
-	expected := `{"repositories":[]}`
-	if rr.Body.String() != expected {
-		t.Errorf("handler returned unexpected body: got %v want %v",
-			rr.Body.String(), expected)
+	// Check the body of the response
+	var jsonResponse repositoriesCollectors.GitHubJsonResponse
+	err = json.NewDecoder(rr.Body).Decode(&jsonResponse)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(jsonResponse.Items) == 0 {
+		t.Errorf("handler returned empty items")
 	}
 }
