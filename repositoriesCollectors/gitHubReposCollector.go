@@ -48,6 +48,16 @@ type Repository struct {
 	Stars        int
 }
 
+// PaginationData holds pagination-related information.
+type PaginationData struct {
+	Page       int
+	PrevPage   int
+	NextPage   int
+	HasPrev    bool
+	HasNext    bool
+	TotalPages int
+}
+
 // ** Methods **
 
 // ConfigureCollector configures the GitHubReposCollector with necessary dependencies.
@@ -122,24 +132,27 @@ func (api *GitHubReposCollector) GetRepositories(w http.ResponseWriter, r *http.
 
 	title := generateHtmlTitle(org, phrase)
 
+	// Calculate the total number of pages
+	itemsPerPage := 30
+	totalPages := (jsonResponse.TotalPages + itemsPerPage - 1) / itemsPerPage
+
+	paginationData := PaginationData{
+		Page:       pageNum,
+		PrevPage:   pageNum - 1,
+		NextPage:   pageNum + 1,
+		HasPrev:    pageNum > 1,
+		HasNext:    pageNum < totalPages,
+		TotalPages: totalPages,
+	}
+
 	data := struct {
 		Repositories []Repository
 		Title        string
-		Page         int
-		PrevPage     int
-		NextPage     int
-		HasPrev      bool
-		HasNext      bool
-		TotalPages   int
+		Pagination   PaginationData
 	}{
 		Repositories: convertToRepositories(jsonResponse.Items),
 		Title:        title,
-		Page:         pageNum,
-		PrevPage:     pageNum - 1,
-		NextPage:     pageNum + 1,
-		HasPrev:      pageNum > 1,
-		HasNext:      pageNum < jsonResponse.TotalPages,
-		TotalPages:   jsonResponse.TotalPages,
+		Pagination:   paginationData,
 	}
 
 	// Render the HTML template

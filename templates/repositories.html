@@ -74,16 +74,14 @@
 </table>
 
 <div class="pagination">
-    {{ if .HasPrev }}
-    <a href="?page={{ .PrevPage }}">Prev</a> |
+    {{ if .Pagination.HasPrev }}
+    <a href="?page={{ .Pagination.PrevPage }}">Prev</a> |
     {{ end }}
-    Page {{.Page}} of {{.TotalPages}} |
-    {{ if .HasNext }}
-    <a href="?page={{ .NextPage }}">Next</a>
+    Page {{.Pagination.Page}} of {{.Pagination.TotalPages}} |
+    {{ if .Pagination.HasNext }}
+    <a href="?page={{ .Pagination.NextPage }}">Next</a>
     {{ end }}
 </div>
-
-
 
 </body>
 </html>
