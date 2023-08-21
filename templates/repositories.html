@@ -32,7 +32,8 @@
         }
         .pagination {
             text-align: center;
-            margin-top: 20px;
+            margin-top: 10px;
+            margin-bottom: 10px;
         }
         .pagination a {
             font-size: 25px;
@@ -41,9 +42,8 @@
             color: #2980b9;
             text-decoration: none;
         }
-        .pagination strong {
+        .pagination span {
             font-size: 25px;
-            padding: 5px 10px;
             margin: 0 5px;
         }
     </style>
@@ -74,14 +74,16 @@
 </table>
 
 <div class="pagination">
-    Page {{.CurrentPage}} of {{.TotalPages}} |
-    {{range .PageNumbers}}
-    {{if eq . $.CurrentPage}}
-    <strong>{{.}}</strong>
-    {{else}}
-    <a href="?page={{.}}">{{.}}</a>
-    {{end}}
-    {{end}}
+    {{ if .HasPrev }}
+    <a href="?page={{ .PrevPage }}">Prev</a> |
+    {{ end }}
+    Page {{.Page}} of {{.TotalPages}} |
+    {{ if .HasNext }}
+    <a href="?page={{ .NextPage }}">Next</a>
+    {{ end }}
 </div>
+
+
+
 </body>
 </html>

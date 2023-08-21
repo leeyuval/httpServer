@@ -13,10 +13,6 @@ import (
 	"time"
 )
 
-// ** Constants **
-
-const PerPage = 10
-
 // ** Types **
 
 // GitHubReposCollector collects and manages GitHub repository information.
@@ -28,15 +24,19 @@ type GitHubReposCollector struct {
 
 // GitHubJsonResponse defines the structure of the JSON response from the GitHub API.
 type GitHubJsonResponse struct {
-	Items []struct {
-		Name  string `json:"name"`
-		Owner struct {
-			Login string `json:"login"`
-		} `json:"owner"`
-		URL          string `json:"html_url"`
-		CreationTime string `json:"created_at"`
-		Stars        int    `json:"stargazers_count"`
-	} `json:"items"`
+	TotalPages int                      `json:"total_count"`
+	Items      []GitHubJsonResponseItem `json:"items"`
+}
+
+// GitHubJsonResponseItem represents a single item in the GitHubJsonResponse.
+type GitHubJsonResponseItem struct {
+	Name  string `json:"name"`
+	Owner struct {
+		Login string `json:"login"`
+	} `json:"owner"`
+	URL          string `json:"html_url"`
+	CreationTime string `json:"created_at"`
+	Stars        int    `json:"stargazers_count"`
 }
 
 // Repository represents a GitHub repository's information structure.
@@ -89,22 +89,18 @@ func (api *GitHubReposCollector) storeDataInCache(cacheKey string, data GitHubJs
 func (api *GitHubReposCollector) GetRepositories(w http.ResponseWriter, r *http.Request) {
 	org, phrase := getOrgNameAndPhrase(r)
 	cacheKey := fmt.Sprintf("%s:%s", org, phrase)
-	pageParam := r.URL.Query().Get("page")
-	page, _ := strconv.Atoi(pageParam)
-	if page < 1 {
-		page = 1
-	}
 
-	var paginatedResponse []Repository
-	var pageNumbers []int
-	var totalPages int
+	// Get page number from query parameters
+	page := r.URL.Query().Get("page")
+	if page == "" {
+		page = "1"
+	}
+	pageNum, _ := strconv.Atoi(page)
 
 	// Check if data is in cache
-	jsonResponse, err := api.getCachedData(cacheKey)
-	if err == nil {
-		paginatedResponse, pageNumbers, totalPages = paginate(jsonResponse, page)
-	} else {
-		apiURL := fmt.Sprintf("https://api.github.com/search/repositories?q=%s+in:name+org:%s", phrase, org)
+	jsonResponse, err := api.getCachedData(cacheKey + ":" + page)
+	if err != nil {
+		apiURL := fmt.Sprintf("https://api.github.com/search/repositories?q=%s+in:name+org:%s&page=%s", phrase, org, page)
 
 		// Fetch repositories from GitHub API
 		resp, err := http.Get(apiURL)
@@ -120,10 +116,8 @@ func (api *GitHubReposCollector) GetRepositories(w http.ResponseWriter, r *http.
 			return
 		}
 
-		paginatedResponse, pageNumbers, totalPages = paginate(jsonResponse, page)
-
 		// Store data in cache
-		api.storeDataInCache(cacheKey, jsonResponse)
+		api.storeDataInCache(cacheKey+":"+page, jsonResponse)
 	}
 
 	title := generateHtmlTitle(org, phrase)
@@ -131,15 +125,21 @@ func (api *GitHubReposCollector) GetRepositories(w http.ResponseWriter, r *http.
 	data := struct {
 		Repositories []Repository
 		Title        string
-		CurrentPage  int
-		PageNumbers  []int
+		Page         int
+		PrevPage     int
+		NextPage     int
+		HasPrev      bool
+		HasNext      bool
 		TotalPages   int
 	}{
-		Repositories: paginatedResponse,
+		Repositories: convertToRepositories(jsonResponse.Items),
 		Title:        title,
-		CurrentPage:  page,
-		PageNumbers:  pageNumbers,
-		TotalPages:   totalPages,
+		Page:         pageNum,
+		PrevPage:     pageNum - 1,
+		NextPage:     pageNum + 1,
+		HasPrev:      pageNum > 1,
+		HasNext:      pageNum < jsonResponse.TotalPages,
+		TotalPages:   jsonResponse.TotalPages,
 	}
 
 	// Render the HTML template
@@ -152,33 +152,20 @@ func (api *GitHubReposCollector) GetRepositories(w http.ResponseWriter, r *http.
 
 // ** Functions **
 
-// paginate performs pagination on the GitHub JSON response.
-func paginate(jsonResponse GitHubJsonResponse, page int) ([]Repository, []int, int) {
-	startIndex := (page - 1) * PerPage
-	endIndex := startIndex + PerPage
-	if endIndex > len(jsonResponse.Items) {
-		endIndex = len(jsonResponse.Items)
-	}
-	paginatedResponse := jsonResponse.Items[startIndex:endIndex]
-
+// convertToRepositories converts GitHubJsonResponse items to Repository items.
+func convertToRepositories(items []GitHubJsonResponseItem) []Repository {
 	var repositories []Repository
-	for _, repo := range paginatedResponse {
-		repositories = append(repositories, Repository{
-			Name:         repo.Name,
-			Owner:        repo.Owner.Login,
-			URL:          repo.URL,
-			CreationTime: utils.FormatCreationTime(repo.CreationTime),
-			Stars:        repo.Stars,
-		})
+	for _, item := range items {
+		repo := Repository{
+			Name:         item.Name,
+			Owner:        item.Owner.Login,
+			URL:          item.URL,
+			CreationTime: utils.FormatCreationTime(item.CreationTime),
+			Stars:        item.Stars,
+		}
+		repositories = append(repositories, repo)
 	}
-
-	totalPages := (len(jsonResponse.Items) + PerPage - 1) / PerPage
-	pageNumbers := make([]int, totalPages)
-	for i := range pageNumbers {
-		pageNumbers[i] = i + 1
-	}
-
-	return repositories, pageNumbers, totalPages
+	return repositories
 }
 
 // getOrgNameAndPhrase extracts organization and query phrase from the request.
