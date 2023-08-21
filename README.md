@@ -41,7 +41,7 @@ The project is organized as follows:
 Before running the application, ensure you have the following dependencies:
 
 - [Docker](https://www.docker.com/get-started)
-- [Go] (https://go.dev/dl/)
+- [Go](https://go.dev/dl/)
 
 ### Running the Application with Docker (Recommended)
 
