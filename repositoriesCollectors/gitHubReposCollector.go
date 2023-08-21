@@ -13,6 +13,12 @@ import (
 	"time"
 )
 
+// ** Constants **
+
+const (
+	ItemsPerPage = 30
+)
+
 // ** Types **
 
 // GitHubReposCollector collects and manages GitHub repository information.
@@ -46,16 +52,6 @@ type Repository struct {
 	URL          string
 	CreationTime string
 	Stars        int
-}
-
-// PaginationData holds pagination-related information.
-type PaginationData struct {
-	Page       int
-	PrevPage   int
-	NextPage   int
-	HasPrev    bool
-	HasNext    bool
-	TotalPages int
 }
 
 // ** Methods **
@@ -132,23 +128,12 @@ func (api *GitHubReposCollector) GetRepositories(w http.ResponseWriter, r *http.
 
 	title := generateHtmlTitle(org, phrase)
 
-	// Calculate the total number of pages
-	itemsPerPage := 30
-	totalPages := (jsonResponse.TotalPages + itemsPerPage - 1) / itemsPerPage
-
-	paginationData := PaginationData{
-		Page:       pageNum,
-		PrevPage:   pageNum - 1,
-		NextPage:   pageNum + 1,
-		HasPrev:    pageNum > 1,
-		HasNext:    pageNum < totalPages,
-		TotalPages: totalPages,
-	}
+	paginationData := utils.GetPaginationData(pageNum, ItemsPerPage, jsonResponse.TotalPages)
 
 	data := struct {
 		Repositories []Repository
 		Title        string
-		Pagination   PaginationData
+		Pagination   utils.PaginationData
 	}{
 		Repositories: convertToRepositories(jsonResponse.Items),
 		Title:        title,
