@@ -1,4 +1,4 @@
-package httpServer_tests
+package repositoriesCollector_tests
 
 import (
 	"context"
