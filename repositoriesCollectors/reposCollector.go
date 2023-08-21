@@ -10,8 +10,12 @@ import (
 
 // ReposCollector defines the interface for repositories information collector.
 type ReposCollector interface {
+
 	// ConfigureCollector configures the collector with the provided context, Redis client, and router.
 	ConfigureCollector(ctx context.Context, rdb *redis.Client, route *mux.Router, cacheDB cacheDBs.CacheDB)
+
+	// SetupRoutes configures the API routes for the ReposCollector.
+	SetupRoutes(r *mux.Router)
 
 	// GetRepositories handles the HTTP request to retrieve repositories based on defined query params.
 	GetRepositories(w http.ResponseWriter, r *http.Request)

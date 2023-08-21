@@ -64,6 +64,11 @@ func (api *GitHubReposCollector) ConfigureCollector(ctx context.Context, rdb *re
 	api.cacheDB = cacheDB
 }
 
+func (api *GitHubReposCollector) SetupRoutes(r *mux.Router) {
+	r.HandleFunc("/repositories/org/{org}", api.GetRepositories).Methods("GET")
+	r.HandleFunc("/repositories/org/{org}/q/{q}", api.GetRepositories).Methods("GET")
+}
+
 // GetRepositories is an HTTP handler that fetches and displays GitHub repositories based on organization and phrase.
 func (api *GitHubReposCollector) GetRepositories(w http.ResponseWriter, r *http.Request) {
 	org, phrase := getOrgNameAndPhrase(r)
