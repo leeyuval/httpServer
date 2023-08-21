@@ -6,11 +6,10 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/mux"
 	"golang.org/x/net/context"
+	"httpServer/cacheDBs"
 	"httpServer/utils"
-	"log"
 	"net/http"
 	"strconv"
-	"time"
 )
 
 // ** Constants **
@@ -23,9 +22,10 @@ const (
 
 // GitHubReposCollector collects and manages GitHub repository information.
 type GitHubReposCollector struct {
-	ctx   context.Context // The context for handling requests.
-	rdb   *redis.Client   // The Redis client for caching data.
-	route *mux.Router     // The router for defining API endpoints.
+	ctx     context.Context  // The context for handling requests.
+	rdb     *redis.Client    // The Redis client for caching data.
+	route   *mux.Router      // The router for defining API endpoints.
+	cacheDB cacheDBs.CacheDB // The cache database for retrieving and storing data.
 }
 
 // GitHubJsonResponse defines the structure of the JSON response from the GitHub API.
@@ -57,38 +57,11 @@ type Repository struct {
 // ** Methods **
 
 // ConfigureCollector configures the GitHubReposCollector with necessary dependencies.
-func (api *GitHubReposCollector) ConfigureCollector(ctx context.Context, rdb *redis.Client, route *mux.Router) {
+func (api *GitHubReposCollector) ConfigureCollector(ctx context.Context, rdb *redis.Client, route *mux.Router, cacheDB cacheDBs.CacheDB) {
 	api.ctx = ctx
 	api.rdb = rdb
 	api.route = route
-}
-
-// getCachedData retrieves cached GitHub JSON response data based on a cache key.
-// It returns the cached data or an error if retrieval or decoding fails.
-func (api *GitHubReposCollector) getCachedData(cacheKey string) (GitHubJsonResponse, error) {
-	cachedData, err := api.rdb.Get(api.ctx, cacheKey).Result()
-	if err != nil {
-		return GitHubJsonResponse{}, err
-	}
-
-	var jsonResponse GitHubJsonResponse
-	err = json.Unmarshal([]byte(cachedData), &jsonResponse)
-	if err != nil {
-		return GitHubJsonResponse{}, err
-	}
-
-	return jsonResponse, nil
-}
-
-// storeDataInCache stores GitHub JSON response data in the cache using a cache key.
-func (api *GitHubReposCollector) storeDataInCache(cacheKey string, data GitHubJsonResponse) {
-	cachedDataBytes, _ := json.Marshal(data)
-	result := api.rdb.Set(api.ctx, cacheKey, cachedDataBytes, time.Hour*12)
-	if result.Err() == nil {
-		log.Println("Data stored in cache successfully.")
-	} else {
-		log.Println(result.Err())
-	}
+	api.cacheDB = cacheDB
 }
 
 // GetRepositories is an HTTP handler that fetches and displays GitHub repositories based on organization and phrase.
@@ -103,8 +76,8 @@ func (api *GitHubReposCollector) GetRepositories(w http.ResponseWriter, r *http.
 	}
 	pageNum, _ := strconv.Atoi(page)
 
-	// Check if data is in cache
-	jsonResponse, err := api.getCachedData(cacheKey + ":" + page)
+	var jsonResponse GitHubJsonResponse
+	err := api.cacheDB.ExtractCachedData(api.ctx, cacheKey+":"+page, &jsonResponse)
 	if err != nil {
 		apiURL := fmt.Sprintf("https://api.github.com/search/repositories?q=%s+in:name+org:%s&page=%s", phrase, org, page)
 
@@ -123,7 +96,11 @@ func (api *GitHubReposCollector) GetRepositories(w http.ResponseWriter, r *http.
 		}
 
 		// Store data in cache
-		api.storeDataInCache(cacheKey+":"+page, jsonResponse)
+		err = api.cacheDB.StoreDataInCache(api.ctx, cacheKey+":"+page, jsonResponse)
+		if err != nil {
+			http.Error(w, "Error storing data in cache", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	title := generateHtmlTitle(org, phrase)
